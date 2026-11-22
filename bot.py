@@ -24,32 +24,16 @@ client = TelegramClient(
 replied_users = set()
 
 @client.on(events.NewMessage(incoming=True))
-async def handler(event):
-    if not event.is_private:
-        return
-
-    sender = await event.get_sender()
-
-    if getattr(sender, "bot", False):
-        return
-
-    uid = event.sender_id
-
-    if uid in replied_users:
-        return
-
-    try:
-        await event.respond(AUTO_REPLY)
-        replied_users.add(uid)
-        logging.info(f"JAVOB YUBORILDI: {uid}")
-
-    except Exception as e:
-        logging.error(f"XATOLIK: {e}")
-
 async def main():
-    await client.start()
+    await client.connect()
+
+    if not await client.is_user_authorized():
+        print("SESSION_STRING NOT AUTHORIZED")
+        return
+
     me = await client.get_me()
     print(f"BOT ISHLAYAPTI: {me.id}")
+
     await client.run_until_disconnected()
 
 asyncio.run(main())
