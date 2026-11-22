@@ -1,54 +1,90 @@
 
 import os
-import json
-import threading
-from flask import Flask
-import telebot
+import asyncio
+import logging
+import sqlite3
+from datetime import datetime, timedelta, timezone
 
-TOKEN = os.environ.get("BOT_TOKEN")
-bot = telebot.TeleBot(TOKEN)
+from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 
-app = Flask(__name__)
-
-AUTO_REPLY = (
-    "Assalomu alaykum! Xabaringizni oldim. "
-    "Bo'sh vaqtim bo'lishi bilan sizga javob yozaman. Rahmat! 😊"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
-FILE = "replied_users.json"
+API_ID = int(os.environ["API_ID"])
+API_HASH = os.environ["API_HASH"]
+SESSION_STRING = os.environ["SESSION_STRING"]
 
-def load_users():
+AUTO_REPLY = os.getenv(
+    "AUTO_REPLY",
+    "Assalomu alaykum! Xabaringizni oldim. Vaqtim bo‘lishi bilan sizga javob yozaman."
+)
+
+COOLDOWN_HOURS = 24
+DB_FILE = os.getenv("DB_FILE", "replies.db")
+
+db = sqlite3.connect(DB_FILE, check_same_thread=False)
+db.execute("""
+CREATE TABLE IF NOT EXISTS replies (
+    user_id INTEGER PRIMARY KEY,
+    last_reply TEXT NOT NULL
+)
+""")
+db.commit()
+
+client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+
+
+@client.on(events.NewMessage(incoming=True))
+async def handler(event):
     try:
-        with open(FILE, "r") as f:
-            return set(json.load(f))
-    except:
-        return set()
+        if not event.is_private:
+            return
 
-replied_users = load_users()
+        sender = await event.get_sender()
 
-def save_users():
-    with open(FILE, "w") as f:
-        json.dump(list(replied_users), f)
+        if sender.bot or sender.id == (await client.get_me()).id:
+            return
 
-@bot.message_handler(func=lambda message: message.chat.type == "private")
-def auto_reply(message):
-    if message.text and message.text.startswith("/"):
-        return
+        now = datetime.now(timezone.utc)
 
-    user_id = str(message.chat.id)
+        row = db.execute(
+            "SELECT last_reply FROM replies WHERE user_id = ?",
+            (sender.id,)
+        ).fetchone()
 
-    if user_id not in replied_users:
-        bot.reply_to(message, AUTO_REPLY)
-        replied_users.add(user_id)
-        save_users()
+        if row:
+            last = datetime.fromisoformat(row[0])
 
-@app.route("/")
-def home():
-    return "Bot ishlayapti!"
+            if now - last < timedelta(hours=COOLDOWN_HOURS):
+                logging.info("24 soatlik limit: %s", sender.id)
+                return
 
-def run_bot():
-    bot.infinity_polling(skip_pending=True)
+        await event.respond(AUTO_REPLY)
+
+        db.execute(
+            "INSERT OR REPLACE INTO replies (user_id, last_reply) VALUES (?, ?)",
+            (sender.id, now.isoformat())
+        )
+        db.commit()
+
+        logging.info("JAVOB YUBORILDI: %s", sender.id)
+
+    except Exception:
+        logging.exception("Xabarni qayta ishlashda xato")
+
+
+async def main():
+    await client.start()
+    me = await client.get_me()
+
+    logging.info("Telegram ulandi: %s", me.id)
+    logging.info("Avtomatik javob faol.")
+
+    await client.run_until_disconnected()
+
 
 if __name__ == "__main__":
-    threading.Thread(target=run_bot, daemon=True).start()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    asyncio.run(main())
