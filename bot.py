@@ -1,6 +1,7 @@
 
 import os
 import asyncio
+import time
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
@@ -13,6 +14,12 @@ AUTO_REPLY = os.getenv(
     "Assalomu alaykum! Xabaringizni oldim. Tez orada javob beraman."
 )
 
+# 24 soat = 86400 sekund
+REPLY_INTERVAL = 86400
+
+# Oxirgi javob yuborilgan kontaktlar
+replied_users = {}
+
 client = TelegramClient(
     StringSession(SESSION_STRING),
     API_ID,
@@ -24,7 +31,9 @@ async def auto_reply(event):
     if not event.is_private:
         return
 
-    if event.sender_id is None:
+    sender_id = event.sender_id
+
+    if sender_id is None:
         return
 
     sender = await event.get_sender()
@@ -32,9 +41,19 @@ async def auto_reply(event):
     if sender is None or getattr(sender, "bot", False):
         return
 
+    now = time.time()
+    last_reply = replied_users.get(sender_id, 0)
+
+    # 24 soat ichida yana javob bermaslik
+    if now - last_reply < REPLY_INTERVAL:
+        print(f"24 soatlik limit: {sender_id}")
+        return
+
     try:
         await event.reply(AUTO_REPLY)
-        print(f"Auto reply yuborildi: {event.sender_id}")
+        replied_users[sender_id] = now
+        print(f"Auto reply yuborildi: {sender_id}")
+
     except Exception as e:
         print(f"Xatolik: {e}")
 
