@@ -1,61 +1,50 @@
 import os
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+import asyncio
+from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 from openai import AsyncOpenAI
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+api_id = int(os.environ["API_ID"])
+api_hash = os.environ["API_HASH"]
+session_string = os.environ["SESSION_STRING"]
+openai_key = os.environ["OPENAI_API_KEY"]
 
-client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+tg = TelegramClient(StringSession(session_string), api_id, api_hash)
+ai = AsyncOpenAI(api_key=openai_key)
 
-histories = {}
+@tg.on(events.NewMessage(incoming=True, from_users=None))
+async def handler(event):
+    if not event.is_private:
+        return
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Salom! Men sun'iy intellekt yordamchisiman. "
-        "Menga istalgan savolingizni o'zbek tilida yozishingiz mumkin."
-    )
+    if event.sender_id == (await tg.get_me()).id:
+        return
 
-async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    histories.pop(update.effective_user.id, None)
-    await update.message.reply_text("Suhbat tarixi tozalandi. Yangi suhbat boshlaymiz!")
-
-async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    message = update.message.text
-
-    if user_id not in histories:
-        histories[user_id] = []
-
-    histories[user_id].append({"role": "user", "content": message})
-    histories[user_id] = histories[user_id][-20:]
+    msg = event.message.message
+    if not msg:
+        return
 
     try:
-        response = await client.chat.completions.create(
+        response = await ai.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {
                     "role": "system",
-                    "content": "Sen aqlli, samimiy va foydali AI yordamchisan. "
-                    "Foydalanuvchiga asosan o'zbek tilida javob ber. "
-                    "Savollarga tushunarli, aniq va tabiiy javob ber."
+                    "content": "Sen o'zbek tilida tabiiy, samimiy va qisqa javob beradigan AI yordamchisan. Suhbatni erkin olib bor."
                 },
-                *histories[user_id]
+                {"role": "user", "content": msg}
             ]
         )
 
         answer = response.choices[0].message.content
-        histories[user_id].append({"role": "assistant", "content": answer})
-
-        await update.message.reply_text(answer)
+        await event.reply(answer)
 
     except Exception as e:
-        await update.message.reply_text("Hozir javob berishda xatolik yuz berdi. Keyinroq urinib ko'ring.")
+        print("Xatolik:", e)
 
-app = Application.builder().token(TELEGRAM_TOKEN).build()
+async def main():
+    await tg.start()
+    print("Telegram AI ishga tushdi!")
+    await tg.run_until_disconnected()
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("reset", reset))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
-
-app.run_polling()
+asyncio.run(main())
