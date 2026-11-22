@@ -1,5 +1,6 @@
 import os
 import asyncio
+import time
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from openai import AsyncOpenAI
@@ -12,12 +13,24 @@ openai_key = os.environ["OPENAI_API_KEY"]
 tg = TelegramClient(StringSession(session_string), api_id, api_hash)
 ai = AsyncOpenAI(api_key=openai_key)
 
-@tg.on(events.NewMessage(incoming=True, from_users=None))
+last_activity = time.time()
+WAIT_TIME = 300  # 3 daqiqa
+
+@tg.on(events.NewMessage(outgoing=True))
+async def activity_handler(event):
+    global last_activity
+    last_activity = time.time()
+
+@tg.on(events.NewMessage(incoming=True))
 async def handler(event):
     if not event.is_private:
         return
 
     if event.sender_id == (await tg.get_me()).id:
+        return
+
+    # Siz yaqinda faol bo'lgan bo'lsangiz, javob bermaydi
+    if time.time() - last_activity < WAIT_TIME:
         return
 
     msg = event.message.message
@@ -30,7 +43,7 @@ async def handler(event):
             messages=[
                 {
                     "role": "system",
-                    "content": "Sen o'zbek tilida tabiiy, samimiy va qisqa javob beradigan AI yordamchisan. Suhbatni erkin olib bor."
+                    "content": "Sen o'zbek tilida tabiiy, samimiy va qisqa javob beradigan yordamchisan. O'zini akkaunt egasi sifatida tut, lekin kerak bo'lsa sun'iy intellekt ekaningni yashirma."
                 },
                 {"role": "user", "content": msg}
             ]
