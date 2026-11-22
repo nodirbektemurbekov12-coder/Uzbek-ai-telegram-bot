@@ -1,10 +1,8 @@
+
 import os
 import asyncio
-import logging
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-
-logging.basicConfig(level=logging.INFO)
 
 API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
@@ -21,19 +19,30 @@ client = TelegramClient(
     API_HASH
 )
 
-replied_users = set()
-
 @client.on(events.NewMessage(incoming=True))
-async def main():
-    await client.connect()
-
-    if not await client.is_user_authorized():
-        print("SESSION_STRING NOT AUTHORIZED")
+async def auto_reply(event):
+    if not event.is_private:
         return
 
-    me = await client.get_me()
-    print(f"BOT ISHLAYAPTI: {me.id}")
+    if event.sender_id is None:
+        return
 
+    sender = await event.get_sender()
+
+    if sender is None or getattr(sender, "bot", False):
+        return
+
+    try:
+        await event.reply(AUTO_REPLY)
+        print(f"Auto reply yuborildi: {event.sender_id}")
+    except Exception as e:
+        print(f"Xatolik: {e}")
+
+async def main():
+    await client.start()
+    me = await client.get_me()
+    print(f"AKKAUNT ISHLAYAPTI: {me.id}")
     await client.run_until_disconnected()
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
